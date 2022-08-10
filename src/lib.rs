@@ -1,4 +1,74 @@
-//! TODO
+//! Convert [`roxmltree`] documents into [`serde`]-compatible types
+//!
+//! [Owned types][de::DeserializeOwned] can be deserialized directly from XML text:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Deserialize)]
+//! struct Record {
+//!     field: String,
+//! }
+//!
+//! let record = from_str::<Record>("<record><field>foobar</field></record>").unwrap();
+//! assert_eq!(record.field, "foobar");
+//! ```
+//!
+//! [Borrowing types][de::Deserialize] must be deserialized from a [`Document`]:
+//!
+//! ```
+//! use roxmltree::Document;
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_doc;
+//!
+//! #[derive(Deserialize)]
+//! struct Record<'a> {
+//!     field: &'a str,
+//! }
+//!
+//! let document = Document::parse("<document><field>foobar</field></document>").unwrap();
+//!
+//! let record = from_doc::<Record>(&document).unwrap();
+//! assert_eq!(record.field, "foobar");
+//! ```
+//!
+//! Fields of structures can be used to access child elements and attributes:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Deserialize)]
+//! struct Record {
+//!     child: String,
+//!     attribute: i32,
+//! }
+//!
+//! let record = from_str::<Record>(r#"<record attribute="42">><child>foobar</child></record>"#).unwrap();
+//! assert_eq!(record.child, "foobar");
+//! assert_eq!(record.attribute, 42);
+//! ```
+//!
+//! Enum variants can be used to describe alternatives:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Debug, PartialEq, Deserialize)]
+//! #[serde(rename_all = "lowercase")]
+//! enum Record {
+//!     Float(f32),
+//!     Integer(i32),
+//! }
+//!
+//! let record = from_str::<Record>(r#"<record>><float>42.0</float></record>"#).unwrap();
+//! assert_eq!(record, Record::Float(42.0));
+//!
+//! let record = from_str::<Record>(r#"<record>><integer>23</integer></record>"#).unwrap();
+//! assert_eq!(record, Record::Integer(23));
+//! ```
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 use std::char::ParseCharError;
@@ -12,7 +82,7 @@ use std::str::{FromStr, ParseBoolError};
 use roxmltree::{Attribute, Document, Error as XmlError, Node};
 use serde::de;
 
-/// TODO
+/// Deserialize an instance of type `T` directly from XML text
 pub fn from_str<T>(text: &str) -> Result<T, Error>
 where
     T: de::DeserializeOwned,
@@ -21,7 +91,7 @@ where
     from_doc(&document)
 }
 
-/// TODO
+/// Deserialize an instance of type `T` from a [`roxmltree`] document
 pub fn from_doc<'de, T>(document: &'de Document<'de>) -> Result<T, Error>
 where
     T: de::Deserialize<'de>,
@@ -45,8 +115,15 @@ enum Source<'de> {
 }
 
 impl<'de, 'tmp> Deserializer<'de, 'tmp> {
-    fn node(&self) -> Result<Node<'de, 'de>, Error> {
-        match self.source {
+    fn name(&self) -> &'de str {
+        match &self.source {
+            Source::Node(node) => node.tag_name().name(),
+            Source::Attribute(attr) => attr.name(),
+        }
+    }
+
+    fn node(&self) -> Result<&Node<'de, 'de>, Error> {
+        match &self.source {
             Source::Node(node) => Ok(node),
             Source::Attribute(_attr) => Err(Error::MissingNode),
         }
@@ -65,9 +142,11 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
     fn siblings(&self) -> Result<impl Iterator<Item = Node<'de, 'de>>, Error> {
         let node = self.node()?;
 
+        let name = node.tag_name().name();
+
         Ok(node
             .next_siblings()
-            .filter(move |node1| node.tag_name().name() == node1.tag_name().name()))
+            .filter(move |node| node.tag_name().name() == name))
     }
 
     fn text(&self) -> Result<&'de str, Error> {
@@ -83,13 +162,6 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
     {
         self.text()
             .and_then(|text| text.trim().parse().map_err(err))
-    }
-
-    fn name(&self) -> &'de str {
-        match &self.source {
-            Source::Node(node) => node.tag_name().name(),
-            Source::Attribute(attr) => attr.name(),
-        }
     }
 }
 
@@ -486,28 +558,28 @@ impl<'de, 'tmp> de::VariantAccess<'de> for Deserializer<'de, 'tmp> {
     }
 }
 
-/// TODO
+/// Possible errors when converting [`roxmltree`] documents to [`serde`]-compatible types
 #[derive(Debug)]
 pub enum Error {
-    /// TODO
+    /// A node was expected, but an attribute was given
     MissingNode,
-    /// TODO
+    /// A node with text was expected, but there was none
     MissingText,
-    /// TODO
+    /// At least one child or attribute is required
     MissingChildOrAttribute,
-    /// TODO
+    /// An error when parsing XML
     ParseXml(XmlError),
-    /// TODO
+    /// An error when parsing a boolean
     ParseBool(ParseBoolError),
-    /// TODO
+    /// An error when parsing an integer
     ParseInt(ParseIntError),
-    /// TODO
+    /// An error when parsing a floating point number
     ParseFloat(ParseFloatError),
-    /// TODO
+    /// An error when parsing a character
     ParseChar(ParseCharError),
-    /// TODO
+    /// The type is not supported
     NotSupported,
-    /// TODO
+    /// A custom error produced by the type
     Custom(String),
 }
 

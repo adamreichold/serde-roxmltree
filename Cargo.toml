@@ -1,9 +1,13 @@
 [package]
 name = "serde-roxmltree"
 description = "Convert roxmltree documents into Serde-compatible types"
+categories = ["encoding", "parser-implementations"]
+keywords = ["serde", "roxmltree", "xml", "serialization"]
 authors = ["Adam Reichold <adam.reichold@t-online.de>"]
-repository = "https://github.com/adamreichold/serde-roxmltree"
 license = "MIT/Apache-2.0"
+repository = "https://github.com/adamreichold/serde-roxmltree"
+documentation = "https://docs.rs/serde-roxmltree"
+readme = "README.md"
 version = "0.1.0"
 edition = "2021"
 
