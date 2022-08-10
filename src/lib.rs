@@ -1,6 +1,7 @@
 //! TODO
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+use std::char::ParseCharError;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::fmt;
@@ -172,11 +173,11 @@ impl<'de, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'tmp> {
         visitor.visit_f64(self.parse(Error::ParseFloat)?)
     }
 
-    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::NotSupported)
+        visitor.visit_char(self.parse(Error::ParseChar)?)
     }
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -503,6 +504,8 @@ pub enum Error {
     /// TODO
     ParseFloat(ParseFloatError),
     /// TODO
+    ParseChar(ParseCharError),
+    /// TODO
     NotSupported,
     /// TODO
     Custom(String),
@@ -524,6 +527,7 @@ impl fmt::Display for Error {
             Self::ParseBool(err) => write!(fmt, "bool parse error: {}", err),
             Self::ParseInt(err) => write!(fmt, "int parse error: {}", err),
             Self::ParseFloat(err) => write!(fmt, "float parse error: {}", err),
+            Self::ParseChar(err) => write!(fmt, "char parse error: {}", err),
             Self::NotSupported => write!(fmt, "not supported"),
             Self::Custom(msg) => write!(fmt, "custom error: {}", msg),
         }
@@ -544,6 +548,20 @@ mod tests {
         assert!(!val);
         let val = from_str::<bool>("<root>\n\ttrue\n</root>").unwrap();
         assert!(val);
+
+        let res = from_str::<bool>("<root>foobar</root>");
+        assert!(matches!(res, Err(Error::ParseBool(_err))));
+    }
+
+    #[test]
+    fn parse_char() {
+        let val = from_str::<char>("<root>x</root>").unwrap();
+        assert_eq!(val, 'x');
+        let val = from_str::<char>("<root>\n\ty\n</root>").unwrap();
+        assert_eq!(val, 'y');
+
+        let res = from_str::<char>("<root>xyz</root>");
+        assert!(matches!(res, Err(Error::ParseChar(_err))));
     }
 
     #[test]
@@ -693,5 +711,4 @@ mod tests {
 
         from_str::<Root>(r#"<root><Child>foobar</Child></root>"#).unwrap();
     }
-
 }
