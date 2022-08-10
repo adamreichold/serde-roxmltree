@@ -1,0 +1,15 @@
+[package]
+name = "serde-roxmltree"
+description = "Convert roxmltree documents into Serde-compatible types"
+authors = ["Adam Reichold <adam.reichold@t-online.de>"]
+repository = "https://github.com/adamreichold/serde-roxmltree"
+license = "MIT/Apache-2.0"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+roxmltree = "0.14"
+serde = "1.0"
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
