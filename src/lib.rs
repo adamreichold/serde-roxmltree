@@ -214,11 +214,11 @@ impl<'de, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'tmp> {
         visitor.visit_some(self)
     }
 
-    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::NotSupported)
+        visitor.visit_unit()
     }
 
     fn deserialize_unit_struct<V>(
@@ -327,7 +327,7 @@ impl<'de, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'tmp> {
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_unit()
+        self.deserialize_unit(visitor)
     }
 }
 
@@ -456,7 +456,7 @@ impl<'de, 'tmp> de::VariantAccess<'de> for Deserializer<'de, 'tmp> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
-        Err(Error::NotSupported)
+        Ok(())
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -665,4 +665,33 @@ mod tests {
         let val = from_doc::<Root>(&document).unwrap();
         assert_eq!(val.child, "foobar");
     }
+
+    #[test]
+    fn unit_struct() {
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Root {
+            child: Child,
+        }
+
+        #[derive(Deserialize)]
+        struct Child;
+
+        from_str::<Root>(r#"<root><child /></root>"#).unwrap();
+
+        from_str::<Root>(r#"<root><child>foobar</child></root>"#).unwrap();
+    }
+
+    #[test]
+    fn unit_variant() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        enum Root {
+            Child,
+        }
+
+        from_str::<Root>(r#"<root><Child /></root>"#).unwrap();
+
+        from_str::<Root>(r#"<root><Child>foobar</Child></root>"#).unwrap();
+    }
+
 }
