@@ -1,6 +1,6 @@
 //! Convert [`roxmltree`] documents into [`serde`]-compatible types
 //!
-//! [Owned types][de::DeserializeOwned] can be deserialized directly from XML text:
+//! [Owned types][de::DeserializeOwned] can be deserialized directly from XML text using [`from_str`]:
 //!
 //! ```
 //! use serde::Deserialize;
@@ -15,7 +15,7 @@
 //! assert_eq!(record.field, "foobar");
 //! ```
 //!
-//! [Borrowing types][de::Deserialize] must be deserialized from a [`Document`]:
+//! [Borrowing types][de::Deserialize] must be deserialized from a [`Document`] using [`from_doc`]:
 //!
 //! ```
 //! use roxmltree::Document;
@@ -33,7 +33,7 @@
 //! assert_eq!(record.field, "foobar");
 //! ```
 //!
-//! Fields of structures can be used to access child elements and attributes:
+//! Fields of structures map to child elements and attributes:
 //!
 //! ```
 //! use serde::Deserialize;
@@ -45,12 +45,27 @@
 //!     attribute: i32,
 //! }
 //!
-//! let record = from_str::<Record>(r#"<record attribute="42">><child>foobar</child></record>"#).unwrap();
+//! let record = from_str::<Record>(r#"<record attribute="42"><child>foobar</child></record>"#).unwrap();
 //! assert_eq!(record.child, "foobar");
 //! assert_eq!(record.attribute, 42);
 //! ```
 //!
-//! Enum variants can be used to describe alternatives:
+//! Sequences collect repeated child elements:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Deserialize)]
+//! struct Record {
+//!     field: Vec<String>,
+//! }
+//!
+//! let record = from_str::<Record>("<record><field>foo</field><field>bar</field></record>").unwrap();
+//! assert_eq!(record.field, ["foo", "bar"]);
+//! ```
+//!
+//! Enum variants describe alternatives:
 //!
 //! ```
 //! use serde::Deserialize;
@@ -63,10 +78,10 @@
 //!     Integer(i32),
 //! }
 //!
-//! let record = from_str::<Record>(r#"<record>><float>42.0</float></record>"#).unwrap();
+//! let record = from_str::<Record>("<record><float>42.0</float></record>").unwrap();
 //! assert_eq!(record, Record::Float(42.0));
 //!
-//! let record = from_str::<Record>(r#"<record>><integer>23</integer></record>"#).unwrap();
+//! let record = from_str::<Record>("<record><integer>23</integer></record>").unwrap();
 //! assert_eq!(record, Record::Integer(23));
 //! ```
 #![forbid(unsafe_code)]
