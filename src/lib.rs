@@ -94,7 +94,7 @@ use std::iter::Peekable;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::{FromStr, ParseBoolError};
 
-use roxmltree::{Attribute, Document, Error as XmlError, Node};
+use roxmltree::{Attribute, Document, Error as XmlError, Node, NodeId};
 use serde::de;
 
 /// Deserialize an instance of type `T` directly from XML text
@@ -120,7 +120,7 @@ where
 
 struct Deserializer<'de, 'tmp> {
     source: Source<'de>,
-    visited: &'tmp mut HashSet<u32>,
+    visited: &'tmp mut HashSet<NodeId>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -424,7 +424,7 @@ where
     I: Iterator<Item = Node<'de, 'de>>,
 {
     source: I,
-    visited: &'tmp mut HashSet<u32>,
+    visited: &'tmp mut HashSet<NodeId>,
 }
 
 impl<'de, 'tmp, I> de::SeqAccess<'de> for SeqAccess<'de, 'tmp, I>
@@ -440,7 +440,7 @@ where
         match self.source.next() {
             None => Ok(None),
             Some(node) => {
-                self.visited.insert(node.id().get());
+                self.visited.insert(node.id());
 
                 let deserializer = Deserializer {
                     source: Source::Node(node),
@@ -457,7 +457,7 @@ where
     I: Iterator<Item = Source<'de>>,
 {
     source: Peekable<I>,
-    visited: &'tmp mut HashSet<u32>,
+    visited: &'tmp mut HashSet<NodeId>,
 }
 
 impl<'de, 'tmp, I> de::MapAccess<'de> for MapAccess<'de, 'tmp, I>
@@ -475,7 +475,7 @@ where
                 None => return Ok(None),
                 Some(source) => {
                     if let Source::Node(node) = source {
-                        if self.visited.contains(&node.id().get()) {
+                        if self.visited.contains(&node.id()) {
                             self.source.next().unwrap();
                             continue;
                         }
@@ -510,7 +510,7 @@ where
     I: Iterator<Item = Source<'de>>,
 {
     source: I,
-    visited: &'tmp mut HashSet<u32>,
+    visited: &'tmp mut HashSet<NodeId>,
 }
 
 impl<'de, 'tmp, I> de::EnumAccess<'de> for EnumAccess<'de, 'tmp, I>
