@@ -164,10 +164,10 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
             .filter(move |node| node.tag_name().name() == name))
     }
 
-    fn text(&self) -> Result<&'de str, Error> {
+    fn text(&self) -> &'de str {
         match self.source {
-            Source::Node(node) => node.text().ok_or(Error::MissingText),
-            Source::Attribute(attr) => Ok(attr.value()),
+            Source::Node(node) => node.text().unwrap_or_default(),
+            Source::Attribute(attr) => attr.value(),
         }
     }
 
@@ -175,8 +175,7 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
     where
         T: FromStr,
     {
-        self.text()
-            .and_then(|text| text.trim().parse().map_err(err))
+        self.text().trim().parse().map_err(err)
     }
 }
 
@@ -271,7 +270,7 @@ impl<'de, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'tmp> {
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_borrowed_str(self.text()?)
+        visitor.visit_borrowed_str(self.text())
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -578,8 +577,6 @@ impl<'de, 'tmp> de::VariantAccess<'de> for Deserializer<'de, 'tmp> {
 pub enum Error {
     /// A node was expected, but an attribute was given
     MissingNode,
-    /// A node with text was expected, but there was none
-    MissingText,
     /// At least one child or attribute is required
     MissingChildOrAttribute,
     /// An error when parsing XML
@@ -608,7 +605,6 @@ impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingNode => write!(fmt, "missing node"),
-            Self::MissingText => write!(fmt, "missing text"),
             Self::MissingChildOrAttribute => write!(fmt, "missing child or attribute"),
             Self::ParseXml(err) => write!(fmt, "XML parse error: {}", err),
             Self::ParseBool(err) => write!(fmt, "bool parse error: {}", err),
@@ -652,6 +648,12 @@ mod tests {
     }
 
     #[test]
+    fn empty_text() {
+        let val = from_str::<String>("<root></root>").unwrap();
+        assert!(val.is_empty());
+    }
+
+    #[test]
     fn children_and_attributes() {
         #[derive(Deserialize)]
         struct Root {
@@ -688,6 +690,18 @@ mod tests {
         let val = from_str::<Root>(r#"<root><child>23</child><another_child>foo</another_child><child>42</child><another_child>bar</another_child></root>"#).unwrap();
         assert_eq!(val.child, [23, 42]);
         assert_eq!(val.another_child, ["foo", "bar"]);
+    }
+
+    #[test]
+    fn zero_of_multiple_children() {
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(default)]
+            child: Vec<i32>,
+        }
+
+        let val = from_str::<Root>(r#"<root></root>"#).unwrap();
+        assert_eq!(val.child, []);
     }
 
     #[test]
