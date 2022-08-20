@@ -11,8 +11,10 @@
 //!     field: String,
 //! }
 //!
-//! let record = from_str::<Record>("<record><field>foobar</field></record>").unwrap();
+//! let record = from_str::<Record>("<record><field>foobar</field></record>")?;
 //! assert_eq!(record.field, "foobar");
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! [Borrowing types][de::Deserialize] must be deserialized from a [`Document`] using [`from_doc`]:
@@ -27,10 +29,12 @@
 //!     field: &'a str,
 //! }
 //!
-//! let document = Document::parse("<document><field>foobar</field></document>").unwrap();
+//! let document = Document::parse("<document><field>foobar</field></document>")?;
 //!
-//! let record = from_doc::<Record>(&document).unwrap();
+//! let record = from_doc::<Record>(&document)?;
 //! assert_eq!(record.field, "foobar");
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Fields of structures map to child elements and attributes:
@@ -45,9 +49,11 @@
 //!     attribute: i32,
 //! }
 //!
-//! let record = from_str::<Record>(r#"<record attribute="42"><child>foobar</child></record>"#).unwrap();
+//! let record = from_str::<Record>(r#"<record attribute="42"><child>foobar</child></record>"#)?;
 //! assert_eq!(record.child, "foobar");
 //! assert_eq!(record.attribute, 42);
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Sequences collect repeated child elements:
@@ -61,8 +67,10 @@
 //!     field: Vec<String>,
 //! }
 //!
-//! let record = from_str::<Record>("<record><field>foo</field><field>bar</field></record>").unwrap();
+//! let record = from_str::<Record>("<record><field>foo</field><field>bar</field></record>")?;
 //! assert_eq!(record.field, ["foo", "bar"]);
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Enum variants describe alternatives:
@@ -78,11 +86,13 @@
 //!     Integer(i32),
 //! }
 //!
-//! let record = from_str::<Record>("<record><float>42.0</float></record>").unwrap();
+//! let record = from_str::<Record>("<record><float>42.0</float></record>")?;
 //! assert_eq!(record, Record::Float(42.0));
 //!
-//! let record = from_str::<Record>("<record><integer>23</integer></record>").unwrap();
+//! let record = from_str::<Record>("<record><integer>23</integer></record>")?;
 //! assert_eq!(record, Record::Integer(23));
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
