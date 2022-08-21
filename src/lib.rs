@@ -107,6 +107,8 @@ use std::str::{FromStr, ParseBoolError};
 use roxmltree::{Attribute, Document, Error as XmlError, Node, NodeId};
 use serde::de;
 
+pub use roxmltree;
+
 /// Deserialize an instance of type `T` directly from XML text
 pub fn from_str<T>(text: &str) -> Result<T, Error>
 where
