@@ -94,13 +94,38 @@
 //! #
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+//!
+//! The reserved name `$text` is used to directly refer to the text within an element:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Deserialize)]
+//! struct Record {
+//!     child: Child,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! struct Child {
+//!     #[serde(rename = "$text")]
+//!     text: String,
+//!     attribute: i32,
+//! }
+//!
+//! let record = from_str::<Record>(r#"<record><child attribute="42">foobar</child></record>"#)?;
+//! assert_eq!(record.child.text, "foobar");
+//! assert_eq!(record.child.attribute, 42);
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 use std::char::ParseCharError;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::fmt;
-use std::iter::Peekable;
+use std::iter::{once, Peekable};
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::{FromStr, ParseBoolError};
 
@@ -139,6 +164,7 @@ struct Deserializer<'de, 'tmp> {
 enum Source<'de> {
     Node(Node<'de, 'de>),
     Attribute(&'de Attribute<'de>),
+    Text(&'de str),
 }
 
 impl<'de, 'tmp> Deserializer<'de, 'tmp> {
@@ -146,13 +172,14 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
         match &self.source {
             Source::Node(node) => node.tag_name().name(),
             Source::Attribute(attr) => attr.name(),
+            Source::Text(_) => "$text",
         }
     }
 
     fn node(&self) -> Result<&Node<'de, 'de>, Error> {
         match &self.source {
             Source::Node(node) => Ok(node),
-            Source::Attribute(_attr) => Err(Error::MissingNode),
+            Source::Attribute(_) | Source::Text(_) => Err(Error::MissingNode),
         }
     }
 
@@ -163,7 +190,8 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
             .children()
             .filter(|node| node.is_element())
             .map(Source::Node)
-            .chain(node.attributes().iter().map(Source::Attribute)))
+            .chain(node.attributes().iter().map(Source::Attribute))
+            .chain(once(node.text().unwrap_or_default()).map(Source::Text)))
     }
 
     fn siblings(&self) -> Result<impl Iterator<Item = Node<'de, 'de>>, Error> {
@@ -180,6 +208,7 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
         match self.source {
             Source::Node(node) => node.text().unwrap_or_default(),
             Source::Attribute(attr) => attr.value(),
+            Source::Text(text) => text,
         }
     }
 
@@ -676,6 +705,25 @@ mod tests {
         let val = from_str::<Root>(r#"<root attr="23"><child>42</child></root>"#).unwrap();
         assert_eq!(val.attr, 23);
         assert_eq!(val.child, 42);
+    }
+
+    #[test]
+    fn children_with_attributes() {
+        #[derive(Deserialize)]
+        struct Root {
+            child: Child,
+        }
+
+        #[derive(Deserialize)]
+        struct Child {
+            attr: i32,
+            #[serde(rename = "$text")]
+            text: u64,
+        }
+
+        let val = from_str::<Root>(r#"<root><child attr="23">42</child></root>"#).unwrap();
+        assert_eq!(val.child.attr, 23);
+        assert_eq!(val.child.text, 42);
     }
 
     #[test]
