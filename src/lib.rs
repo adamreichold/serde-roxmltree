@@ -658,7 +658,18 @@ impl fmt::Display for Error {
     }
 }
 
-impl StdError for Error {}
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            Self::ParseXml(err) => Some(err),
+            Self::ParseBool(err) => Some(err),
+            Self::ParseInt(err) => Some(err),
+            Self::ParseFloat(err) => Some(err),
+            Self::ParseChar(err) => Some(err),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
