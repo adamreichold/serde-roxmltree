@@ -8,11 +8,11 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/adamreichold/serde-roxmltree"
 documentation = "https://docs.rs/serde-roxmltree"
 readme = "README.md"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2021"
 
 [dependencies]
-roxmltree = { version = "0.15", default-features = false, features = ["std"] }
+roxmltree = { version = "0.16", default-features = false, features = ["std"] }
 serde = "1.0"
 
 [dev-dependencies]

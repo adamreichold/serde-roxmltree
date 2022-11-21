@@ -120,7 +120,11 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![deny(
+    missing_docs,
+    missing_copy_implementations,
+    missing_debug_implementations
+)]
 use std::char::ParseCharError;
 use std::collections::HashSet;
 use std::error::Error as StdError;
@@ -144,7 +148,7 @@ where
 }
 
 /// Deserialize an instance of type `T` from a [`roxmltree`] document
-pub fn from_doc<'de, T>(document: &'de Document<'de>) -> Result<T, Error>
+pub fn from_doc<'de, 'input, T>(document: &'de Document<'input>) -> Result<T, Error>
 where
     T: de::Deserialize<'de>,
 {
@@ -155,19 +159,19 @@ where
     T::deserialize(deserializer)
 }
 
-struct Deserializer<'de, 'tmp> {
-    source: Source<'de>,
+struct Deserializer<'de, 'input, 'tmp> {
+    source: Source<'de, 'input>,
     visited: &'tmp mut HashSet<NodeId>,
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Source<'de> {
-    Node(Node<'de, 'de>),
-    Attribute(&'de Attribute<'de>),
+enum Source<'de, 'input> {
+    Node(Node<'de, 'input>),
+    Attribute(Attribute<'de, 'input>),
     Text(&'de str),
 }
 
-impl<'de, 'tmp> Deserializer<'de, 'tmp> {
+impl<'de, 'input, 'tmp> Deserializer<'de, 'input, 'tmp> {
     fn name(&self) -> &'de str {
         match &self.source {
             Source::Node(node) => node.tag_name().name(),
@@ -176,21 +180,21 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
         }
     }
 
-    fn node(&self) -> Result<&Node<'de, 'de>, Error> {
+    fn node(&self) -> Result<&Node<'de, 'input>, Error> {
         match &self.source {
             Source::Node(node) => Ok(node),
             Source::Attribute(_) | Source::Text(_) => Err(Error::MissingNode),
         }
     }
 
-    fn children_and_attributes(&self) -> Result<impl Iterator<Item = Source<'de>>, Error> {
+    fn children_and_attributes(&self) -> Result<impl Iterator<Item = Source<'de, 'input>>, Error> {
         let node = self.node()?;
 
         Ok(node
             .children()
             .filter(|node| node.is_element())
             .map(Source::Node)
-            .chain(node.attributes().iter().map(Source::Attribute))
+            .chain(node.attributes().map(Source::Attribute))
             .chain(once(node.text().unwrap_or_default()).map(Source::Text)))
     }
 
@@ -220,7 +224,7 @@ impl<'de, 'tmp> Deserializer<'de, 'tmp> {
     }
 }
 
-impl<'de, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'tmp> {
+impl<'de, 'input, 'tmp> de::Deserializer<'de> for Deserializer<'de, 'input, 'tmp> {
     type Error = Error;
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -492,17 +496,17 @@ where
     }
 }
 
-struct MapAccess<'de, 'tmp, I>
+struct MapAccess<'de, 'input: 'de, 'tmp, I>
 where
-    I: Iterator<Item = Source<'de>>,
+    I: Iterator<Item = Source<'de, 'input>>,
 {
     source: Peekable<I>,
     visited: &'tmp mut HashSet<NodeId>,
 }
 
-impl<'de, 'tmp, I> de::MapAccess<'de> for MapAccess<'de, 'tmp, I>
+impl<'de, 'input, 'tmp, I> de::MapAccess<'de> for MapAccess<'de, 'input, 'tmp, I>
 where
-    I: Iterator<Item = Source<'de>>,
+    I: Iterator<Item = Source<'de, 'input>>,
 {
     type Error = Error;
 
@@ -545,20 +549,20 @@ where
     }
 }
 
-struct EnumAccess<'de, 'tmp, I>
+struct EnumAccess<'de, 'input: 'de, 'tmp, I>
 where
-    I: Iterator<Item = Source<'de>>,
+    I: Iterator<Item = Source<'de, 'input>>,
 {
     source: I,
     visited: &'tmp mut HashSet<NodeId>,
 }
 
-impl<'de, 'tmp, I> de::EnumAccess<'de> for EnumAccess<'de, 'tmp, I>
+impl<'de, 'input, 'tmp, I> de::EnumAccess<'de> for EnumAccess<'de, 'input, 'tmp, I>
 where
-    I: Iterator<Item = Source<'de>>,
+    I: Iterator<Item = Source<'de, 'input>>,
 {
     type Error = Error;
-    type Variant = Deserializer<'de, 'tmp>;
+    type Variant = Deserializer<'de, 'input, 'tmp>;
 
     fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
     where
@@ -580,7 +584,7 @@ where
     }
 }
 
-impl<'de, 'tmp> de::VariantAccess<'de> for Deserializer<'de, 'tmp> {
+impl<'de, 'input, 'tmp> de::VariantAccess<'de> for Deserializer<'de, 'input, 'tmp> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
