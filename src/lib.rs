@@ -651,13 +651,13 @@ impl fmt::Display for Error {
         match self {
             Self::MissingNode => write!(fmt, "missing node"),
             Self::MissingChildOrAttribute => write!(fmt, "missing child or attribute"),
-            Self::ParseXml(err) => write!(fmt, "XML parse error: {}", err),
-            Self::ParseBool(err) => write!(fmt, "bool parse error: {}", err),
-            Self::ParseInt(err) => write!(fmt, "int parse error: {}", err),
-            Self::ParseFloat(err) => write!(fmt, "float parse error: {}", err),
-            Self::ParseChar(err) => write!(fmt, "char parse error: {}", err),
+            Self::ParseXml(err) => write!(fmt, "XML parse error: {err}"),
+            Self::ParseBool(err) => write!(fmt, "bool parse error: {err}"),
+            Self::ParseInt(err) => write!(fmt, "int parse error: {err}"),
+            Self::ParseFloat(err) => write!(fmt, "float parse error: {err}"),
+            Self::ParseChar(err) => write!(fmt, "char parse error: {err}"),
             Self::NotSupported => write!(fmt, "not supported"),
-            Self::Custom(msg) => write!(fmt, "custom error: {}", msg),
+            Self::Custom(msg) => write!(fmt, "custom error: {msg}"),
         }
     }
 }
