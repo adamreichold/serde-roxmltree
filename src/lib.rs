@@ -152,12 +152,21 @@ pub fn from_doc<'de, 'input, T>(document: &'de Document<'input>) -> Result<T, Er
 where
     T: de::Deserialize<'de>,
 {
+    from_node(document.root_element())
+}
+
+/// Deserialize an instance of type `T` from a [`roxmltree`] Node
+pub fn from_node<'de, 'input, T>(node: Node<'de, 'input>) -> Result<T, Error>
+where
+    T: de::Deserialize<'de>,
+{
     let deserializer = Deserializer {
-        source: Source::Node(document.root_element()),
+        source: Source::Node(node),
         visited: &mut HashSet::new(),
     };
     T::deserialize(deserializer)
 }
+
 
 struct Deserializer<'de, 'input, 'tmp> {
     source: Source<'de, 'input>,
