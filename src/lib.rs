@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn unit_variant() {
-        #[derive(Debug, PartialEq, Deserialize)]
+        #[derive(Debug, Deserialize)]
         enum Root {
             Child,
         }
