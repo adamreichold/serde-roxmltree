@@ -126,14 +126,14 @@
     missing_debug_implementations
 )]
 use std::char::ParseCharError;
-use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::fmt;
 use std::iter::{once, Peekable};
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::{FromStr, ParseBoolError};
 
-use roxmltree::{Attribute, Document, Error as XmlError, Node, NodeId};
+use bit_set::BitSet;
+use roxmltree::{Attribute, Document, Error as XmlError, Node};
 use serde::de;
 
 pub use roxmltree;
@@ -162,14 +162,14 @@ where
 {
     let deserializer = Deserializer {
         source: Source::Node(node),
-        visited: &mut HashSet::new(),
+        visited: &mut Default::default(),
     };
     T::deserialize(deserializer)
 }
 
 struct Deserializer<'de, 'input, 'tmp> {
     source: Source<'de, 'input>,
-    visited: &'tmp mut HashSet<NodeId>,
+    visited: &'tmp mut BitSet<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -476,7 +476,7 @@ where
     I: Iterator<Item = Node<'de, 'de>>,
 {
     source: I,
-    visited: &'tmp mut HashSet<NodeId>,
+    visited: &'tmp mut BitSet<usize>,
 }
 
 impl<'de, 'tmp, I> de::SeqAccess<'de> for SeqAccess<'de, 'tmp, I>
@@ -492,7 +492,7 @@ where
         match self.source.next() {
             None => Ok(None),
             Some(node) => {
-                self.visited.insert(node.id());
+                self.visited.insert(node.id().get_usize());
 
                 let deserializer = Deserializer {
                     source: Source::Node(node),
@@ -509,7 +509,7 @@ where
     I: Iterator<Item = Source<'de, 'input>>,
 {
     source: Peekable<I>,
-    visited: &'tmp mut HashSet<NodeId>,
+    visited: &'tmp mut BitSet<usize>,
 }
 
 impl<'de, 'input, 'tmp, I> de::MapAccess<'de> for MapAccess<'de, 'input, 'tmp, I>
@@ -527,7 +527,7 @@ where
                 None => return Ok(None),
                 Some(source) => {
                     if let Source::Node(node) = source {
-                        if self.visited.contains(&node.id()) {
+                        if self.visited.contains(node.id().get_usize()) {
                             self.source.next().unwrap();
                             continue;
                         }
@@ -562,7 +562,7 @@ where
     I: Iterator<Item = Source<'de, 'input>>,
 {
     source: I,
-    visited: &'tmp mut HashSet<NodeId>,
+    visited: &'tmp mut BitSet<usize>,
 }
 
 impl<'de, 'input, 'tmp, I> de::EnumAccess<'de> for EnumAccess<'de, 'input, 'tmp, I>
