@@ -247,20 +247,7 @@ pub trait Options: Sized {
     }
 
     #[doc(hidden)]
-    #[allow(private_interfaces)]
-    fn name<'de, 'input, 'temp>(
-        source: &Source<'de, 'input>,
-        _buffer: &'temp mut String,
-    ) -> &'temp str
-    where
-        'input: 'temp,
-    {
-        match source {
-            Source::Node(node) => node.tag_name().name(),
-            Source::Attribute(attr) => attr.name(),
-            Source::Text(_) => "$text",
-        }
-    }
+    const NAMESPACES: bool = false;
 }
 
 #[doc(hidden)]
@@ -279,14 +266,38 @@ impl Options for Defaults {}
 pub struct Namespaces<O>(PhantomData<O>);
 
 impl<O> Options for Namespaces<O> {
-    #[allow(private_interfaces)]
-    fn name<'de, 'input, 'temp>(
-        source: &Source<'de, 'input>,
-        buffer: &'temp mut String,
-    ) -> &'temp str
-    where
-        'input: 'temp,
-    {
+    const NAMESPACES: bool = true;
+}
+
+struct Deserializer<'de, 'input, 'temp, O> {
+    source: Source<'de, 'input>,
+    temp: &'temp mut Temp,
+    options: PhantomData<O>,
+}
+
+#[derive(Clone, Copy)]
+enum Source<'de, 'input> {
+    Node(Node<'de, 'input>),
+    Attribute(Attribute<'de, 'input>),
+    Text(&'de str),
+}
+
+#[derive(Default)]
+struct Temp {
+    visited: BitSet<usize>,
+    buffer: String,
+}
+
+impl<'de, 'input, 'temp, O> Deserializer<'de, 'input, 'temp, O> {
+    fn name(&self) -> &'de str {
+        match &self.source {
+            Source::Node(node) => node.tag_name().name(),
+            Source::Attribute(attr) => attr.name(),
+            Source::Text(_) => "$text",
+        }
+    }
+
+    fn qualified_name(&mut self) -> &str {
         fn inner<'input, 'temp>(
             namespace: Option<&str>,
             name: &'input str,
@@ -312,37 +323,16 @@ impl<O> Options for Namespaces<O> {
             }
         }
 
-        match source {
+        match &self.source {
             Source::Node(node) => {
                 let tag_name = node.tag_name();
-                inner(tag_name.namespace(), tag_name.name(), buffer)
+                inner(tag_name.namespace(), tag_name.name(), &mut self.temp.buffer)
             }
-            Source::Attribute(attr) => inner(attr.namespace(), attr.name(), buffer),
+            Source::Attribute(attr) => inner(attr.namespace(), attr.name(), &mut self.temp.buffer),
             Source::Text(_) => "$text",
         }
     }
-}
 
-struct Deserializer<'de, 'input, 'temp, O> {
-    source: Source<'de, 'input>,
-    temp: &'temp mut Temp,
-    options: PhantomData<O>,
-}
-
-#[derive(Clone, Copy)]
-enum Source<'de, 'input> {
-    Node(Node<'de, 'input>),
-    Attribute(Attribute<'de, 'input>),
-    Text(&'de str),
-}
-
-#[derive(Default)]
-struct Temp {
-    visited: BitSet<usize>,
-    buffer: String,
-}
-
-impl<'de, 'input, 'temp, O> Deserializer<'de, 'input, 'temp, O> {
     fn node(&self) -> Result<&Node<'de, 'input>, Error> {
         match &self.source {
             Source::Node(node) => Ok(node),
@@ -614,11 +604,15 @@ where
         })
     }
 
-    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_identifier<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_str(O::name(&self.source, &mut self.temp.buffer))
+        if O::NAMESPACES {
+            visitor.visit_str(self.qualified_name())
+        } else {
+            visitor.visit_borrowed_str(self.name())
+        }
     }
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
