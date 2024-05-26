@@ -274,11 +274,22 @@ pub trait Options: Sized {
         PrefixAttr(PhantomData)
     }
 
+    /// Only visit child elements
+    ///
+    /// Does not visit attributes and `$text`
+    /// to improve efficiency when these are irrelevant.
+    fn only_children(self) -> OnlyChildren<Self> {
+        OnlyChildren(PhantomData)
+    }
+
     #[doc(hidden)]
     const NAMESPACES: bool = false;
 
     #[doc(hidden)]
     const PREFIX_ATTR: bool = false;
+
+    #[doc(hidden)]
+    const ONLY_CHILDREN: bool = false;
 }
 
 #[doc(hidden)]
@@ -301,8 +312,8 @@ where
     O: Options,
 {
     const NAMESPACES: bool = true;
-
     const PREFIX_ATTR: bool = O::PREFIX_ATTR;
+    const ONLY_CHILDREN: bool = O::ONLY_CHILDREN;
 }
 
 #[doc(hidden)]
@@ -314,8 +325,21 @@ where
     O: Options,
 {
     const NAMESPACES: bool = O::NAMESPACES;
-
     const PREFIX_ATTR: bool = true;
+    const ONLY_CHILDREN: bool = O::ONLY_CHILDREN;
+}
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct OnlyChildren<O>(PhantomData<O>);
+
+impl<O> Options for OnlyChildren<O>
+where
+    O: Options,
+{
+    const NAMESPACES: bool = O::NAMESPACES;
+    const PREFIX_ATTR: bool = O::PREFIX_ATTR;
+    const ONLY_CHILDREN: bool = true;
 }
 
 struct Deserializer<'de, 'input, 'temp, O> {
@@ -414,6 +438,17 @@ where
             Source::Node(node) => Ok(node),
             Source::Attribute(_) | Source::Text(_) => Err(Error::MissingNode),
         }
+    }
+
+    fn children(&self) -> Result<impl Iterator<Item = Source<'de, 'input>>, Error> {
+        let node = self.node()?;
+
+        let children = node
+            .children()
+            .filter(|node| node.is_element())
+            .map(Source::Node);
+
+        Ok(children)
     }
 
     fn children_and_attributes(&self) -> Result<impl Iterator<Item = Source<'de, 'input>>, Error> {
@@ -645,11 +680,19 @@ where
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_map(MapAccess {
-            source: self.children_and_attributes()?.peekable(),
-            temp: self.temp,
-            options: PhantomData::<O>,
-        })
+        if O::ONLY_CHILDREN {
+            visitor.visit_map(MapAccess {
+                source: self.children()?.peekable(),
+                temp: self.temp,
+                options: PhantomData::<O>,
+            })
+        } else {
+            visitor.visit_map(MapAccess {
+                source: self.children_and_attributes()?.peekable(),
+                temp: self.temp,
+                options: PhantomData::<O>,
+            })
+        }
     }
 
     fn deserialize_struct<V>(
@@ -673,11 +716,19 @@ where
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_enum(EnumAccess {
-            source: self.children_and_attributes()?,
-            temp: self.temp,
-            options: PhantomData::<O>,
-        })
+        if O::ONLY_CHILDREN {
+            visitor.visit_enum(EnumAccess {
+                source: self.children()?,
+                temp: self.temp,
+                options: PhantomData::<O>,
+            })
+        } else {
+            visitor.visit_enum(EnumAccess {
+                source: self.children_and_attributes()?,
+                temp: self.temp,
+                options: PhantomData::<O>,
+            })
+        }
     }
 
     fn deserialize_identifier<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
@@ -1210,5 +1261,50 @@ mod tests {
             )
             .unwrap();
         assert_eq!(val.attr, 23);
+    }
+
+    #[test]
+    fn only_children_skips_attributes() {
+        #[derive(Deserialize)]
+        struct Root {
+            child: u64,
+            attr: Option<i32>,
+        }
+
+        let val = defaults()
+            .from_str::<Root>(r#"<root attr="23"><child>42</child></root>"#)
+            .unwrap();
+        assert_eq!(val.child, 42);
+        assert_eq!(val.attr, Some(23));
+
+        let val = defaults()
+            .only_children()
+            .from_str::<Root>(r#"<root attr="23"><child>42</child></root>"#)
+            .unwrap();
+        assert_eq!(val.child, 42);
+        assert_eq!(val.attr, None);
+    }
+
+    #[test]
+    fn only_children_skips_text() {
+        #[derive(Deserialize)]
+        struct Root {
+            child: u64,
+            #[serde(rename = "$text")]
+            text: Option<String>,
+        }
+
+        let val = defaults()
+            .from_str::<Root>(r#"<root>text<child>42</child></root>"#)
+            .unwrap();
+        assert_eq!(val.child, 42);
+        assert_eq!(val.text.as_deref(), Some("text"));
+
+        let val = defaults()
+            .only_children()
+            .from_str::<Root>(r#"<root>text<child>42</child></root>"#)
+            .unwrap();
+        assert_eq!(val.child, 42);
+        assert_eq!(val.text.as_deref(), None);
     }
 }
