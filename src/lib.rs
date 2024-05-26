@@ -120,6 +120,26 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! Optionally, attribute names can be prefixed by `@` to distinguish them from tag names:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::{defaults, from_str, Options};
+//!
+//! #[derive(Deserialize)]
+//! struct Record {
+//!     child: String,
+//!     #[serde(rename = "@attribute")]
+//!     attribute: i32,
+//! }
+//!
+//! let record = defaults().prefix_attr().from_str::<Record>(r#"<record attribute="42"><child>foobar</child></record>"#)?;
+//! assert_eq!(record.child, "foobar");
+//! assert_eq!(record.attribute, 42);
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
 //! Support for [namespaces][namespaces] can be enabled via the [`namespaces`][Options::namespaces] option:
 //!
 //! ```
@@ -246,8 +266,19 @@ pub trait Options: Sized {
         Namespaces(PhantomData)
     }
 
+    /// Prefix attribute names
+    ///
+    /// Attribute names will have the form `@name`
+    /// to distinguish them from tag names.
+    fn prefix_attr(self) -> PrefixAttr<Self> {
+        PrefixAttr(PhantomData)
+    }
+
     #[doc(hidden)]
     const NAMESPACES: bool = false;
+
+    #[doc(hidden)]
+    const PREFIX_ATTR: bool = false;
 }
 
 #[doc(hidden)]
@@ -265,8 +296,26 @@ impl Options for Defaults {}
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Namespaces<O>(PhantomData<O>);
 
-impl<O> Options for Namespaces<O> {
+impl<O> Options for Namespaces<O>
+where
+    O: Options,
+{
     const NAMESPACES: bool = true;
+
+    const PREFIX_ATTR: bool = O::PREFIX_ATTR;
+}
+
+#[doc(hidden)]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct PrefixAttr<O>(PhantomData<O>);
+
+impl<O> Options for PrefixAttr<O>
+where
+    O: Options,
+{
+    const NAMESPACES: bool = O::NAMESPACES;
+
+    const PREFIX_ATTR: bool = true;
 }
 
 struct Deserializer<'de, 'input, 'temp, O> {
@@ -288,47 +337,74 @@ struct Temp {
     buffer: String,
 }
 
-impl<'de, 'input, 'temp, O> Deserializer<'de, 'input, 'temp, O> {
-    fn name(&self) -> &'de str {
-        match &self.source {
-            Source::Node(node) => node.tag_name().name(),
-            Source::Attribute(attr) => attr.name(),
-            Source::Text(_) => "$text",
-        }
-    }
-
-    fn qualified_name(&mut self) -> &str {
-        fn inner<'input, 'temp>(
-            namespace: Option<&str>,
-            name: &'input str,
-            buffer: &'temp mut String,
-        ) -> &'temp str
-        where
-            'input: 'temp,
-        {
-            match namespace {
-                Some(namespace) => {
-                    buffer.clear();
-                    buffer.reserve(namespace.len() + 2 + name.len());
-
-                    buffer.push('{');
-                    buffer.push_str(namespace);
-                    buffer.push('}');
-
-                    buffer.push_str(name);
-
-                    &*buffer
-                }
-                None => name,
-            }
-        }
-
+impl<'de, 'input, 'temp, O> Deserializer<'de, 'input, 'temp, O>
+where
+    O: Options,
+{
+    fn name(&mut self) -> &str {
         match &self.source {
             Source::Node(node) => {
-                let tag_name = node.tag_name();
-                inner(tag_name.namespace(), tag_name.name(), &mut self.temp.buffer)
+                let name = node.tag_name().name();
+
+                match node.tag_name().namespace() {
+                    Some(namespace) if O::NAMESPACES => {
+                        let buffer = &mut self.temp.buffer;
+                        buffer.clear();
+
+                        buffer.reserve(namespace.len() + 2 + name.len());
+
+                        buffer.push('{');
+                        buffer.push_str(namespace);
+                        buffer.push('}');
+
+                        buffer.push_str(name);
+
+                        &*buffer
+                    }
+                    _ => name,
+                }
             }
-            Source::Attribute(attr) => inner(attr.namespace(), attr.name(), &mut self.temp.buffer),
+            Source::Attribute(attr) => {
+                let name = attr.name();
+
+                match attr.namespace() {
+                    Some(namespace) if O::NAMESPACES => {
+                        let buffer = &mut self.temp.buffer;
+                        buffer.clear();
+
+                        if O::PREFIX_ATTR {
+                            buffer.reserve(3 + namespace.len() + name.len());
+
+                            buffer.push('@');
+                        } else {
+                            buffer.reserve(2 + namespace.len() + name.len());
+                        }
+
+                        buffer.push('{');
+                        buffer.push_str(namespace);
+                        buffer.push('}');
+
+                        buffer.push_str(name);
+
+                        &*buffer
+                    }
+                    _ => {
+                        if O::PREFIX_ATTR {
+                            let buffer = &mut self.temp.buffer;
+                            buffer.clear();
+
+                            buffer.reserve(1 + name.len());
+
+                            buffer.push('@');
+                            buffer.push_str(name);
+
+                            &*buffer
+                        } else {
+                            name
+                        }
+                    }
+                }
+            }
             Source::Text(_) => "$text",
         }
     }
@@ -608,11 +684,7 @@ where
     where
         V: de::Visitor<'de>,
     {
-        if O::NAMESPACES {
-            visitor.visit_str(self.qualified_name())
-        } else {
-            visitor.visit_borrowed_str(self.name())
-        }
+        visitor.visit_str(self.name())
     }
 
     fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
@@ -1077,13 +1149,13 @@ mod tests {
             child: u64,
         }
 
-        let val = Defaults
+        let val = defaults()
             .namespaces()
             .from_str::<Root>(r#"<root xmlns="http://name.space"><child>42</child></root>"#)
             .unwrap();
         assert_eq!(val.child, 42);
 
-        let val = Defaults
+        let val = defaults()
             .namespaces()
             .from_str::<Root>(r#"<root xmlns:namespace="http://name.space"><namespace:child>42</namespace:child></root>"#)
             .unwrap();
@@ -1098,8 +1170,41 @@ mod tests {
             attr: i32,
         }
 
-        let val = Defaults
+        let val = defaults()
             .namespaces()
+            .from_str::<Root>(
+                r#"<root xmlns:namespace="http://name.space" namespace:attr="23"></root>"#,
+            )
+            .unwrap();
+        assert_eq!(val.attr, 23);
+    }
+
+    #[test]
+    fn prefixed_attributes() {
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "@attr")]
+            attr: i32,
+        }
+
+        let val = defaults()
+            .prefix_attr()
+            .from_str::<Root>(r#"<root attr="23"></root>"#)
+            .unwrap();
+        assert_eq!(val.attr, 23);
+    }
+
+    #[test]
+    fn prefixed_attributes_with_namespaces() {
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "@{http://name.space}attr")]
+            attr: i32,
+        }
+
+        let val = defaults()
+            .namespaces()
+            .prefix_attr()
             .from_str::<Root>(
                 r#"<root xmlns:namespace="http://name.space" namespace:attr="23"></root>"#,
             )
