@@ -368,9 +368,10 @@ where
     fn name(&mut self) -> &str {
         match &self.source {
             Source::Node(node) => {
-                let name = node.tag_name().name();
+                let tag_name = node.tag_name();
+                let name = tag_name.name();
 
-                match node.tag_name().namespace() {
+                match tag_name.namespace() {
                     Some(namespace) if O::NAMESPACES => {
                         let buffer = &mut self.temp.buffer;
                         buffer.clear();
@@ -469,11 +470,17 @@ where
     fn siblings(&self) -> Result<impl Iterator<Item = Node<'de, 'de>>, Error> {
         let node = self.node()?;
 
-        let name = node.tag_name().name();
+        let tag_name = node.tag_name();
 
-        Ok(node
-            .next_siblings()
-            .filter(move |node| node.tag_name().name() == name))
+        Ok(node.next_siblings().filter(move |node| {
+            let tag_name1 = node.tag_name();
+
+            if O::NAMESPACES && tag_name.namespace() != tag_name1.namespace() {
+                return false;
+            }
+
+            tag_name.name() == tag_name1.name()
+        }))
     }
 
     fn text(&self) -> &'de str {
@@ -1306,5 +1313,30 @@ mod tests {
             .unwrap();
         assert_eq!(val.child, 42);
         assert_eq!(val.text.as_deref(), None);
+    }
+
+    #[test]
+    fn repeated_namespaced_elements() {
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "{http://foo}child")]
+            foo: Vec<u64>,
+            #[serde(rename = "{http://bar}child")]
+            bar: Vec<u64>,
+        }
+
+        let val = defaults()
+            .namespaces()
+            .from_str::<Root>(
+                r#"<root xmlns:foo="http://foo" xmlns:bar="http://bar">
+    <foo:child>1</foo:child>
+    <bar:child>2</bar:child>
+    <bar:child>3</bar:child>
+    <foo:child>4</foo:child>
+</root>"#,
+            )
+            .unwrap();
+        assert_eq!(val.foo, [1, 4]);
+        assert_eq!(val.bar, [2, 3]);
     }
 }
