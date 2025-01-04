@@ -361,7 +361,7 @@ struct Temp {
     buffer: String,
 }
 
-impl<'de, 'input, 'temp, O> Deserializer<'de, 'input, 'temp, O>
+impl<'de, 'input, O> Deserializer<'de, 'input, '_, O>
 where
     O: Options,
 {
@@ -499,7 +499,7 @@ where
     }
 }
 
-impl<'de, 'input, 'temp, O> de::Deserializer<'de> for Deserializer<'de, 'input, 'temp, O>
+impl<'de, O> de::Deserializer<'de> for Deserializer<'de, '_, '_, O>
 where
     O: Options,
 {
@@ -769,7 +769,7 @@ where
     options: PhantomData<O>,
 }
 
-impl<'de, 'temp, I, O> de::SeqAccess<'de> for SeqAccess<'de, 'temp, I, O>
+impl<'de, I, O> de::SeqAccess<'de> for SeqAccess<'de, '_, I, O>
 where
     I: Iterator<Item = Node<'de, 'de>>,
     O: Options,
@@ -805,7 +805,7 @@ where
     options: PhantomData<O>,
 }
 
-impl<'de, 'input, 'temp, I, O> de::MapAccess<'de> for MapAccess<'de, 'input, 'temp, I, O>
+impl<'de, 'input, I, O> de::MapAccess<'de> for MapAccess<'de, 'input, '_, I, O>
 where
     I: Iterator<Item = Source<'de, 'input>>,
     O: Options,
@@ -892,7 +892,7 @@ where
     }
 }
 
-impl<'de, 'input, 'temp, O> de::VariantAccess<'de> for Deserializer<'de, 'input, 'temp, O>
+impl<'de, O> de::VariantAccess<'de> for Deserializer<'de, '_, '_, O>
 where
     O: Options,
 {
