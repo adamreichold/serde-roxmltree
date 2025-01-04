@@ -37,6 +37,8 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! Subtrees can be captured from the source by enabling the `raw-node` feature and using the [`RawNode`] type.
+//!
 //! Fields of structures map to child elements and attributes:
 //!
 //! ```
@@ -175,12 +177,16 @@
 //! ```
 //!
 //! [namespaces]: https://www.w3.org/TR/REC-xml-names/
-#![forbid(unsafe_code)]
 #![deny(
+    unsafe_code,
     missing_docs,
     missing_copy_implementations,
     missing_debug_implementations
 )]
+
+#[cfg(feature = "raw-node")]
+mod raw_node;
+
 use std::char::ParseCharError;
 use std::error::Error as StdError;
 use std::fmt;
@@ -194,6 +200,9 @@ use roxmltree::{Attribute, Document, Error as XmlError, Node};
 use serde::de;
 
 pub use roxmltree;
+
+#[cfg(feature = "raw-node")]
+pub use raw_node::RawNode;
 
 /// Deserialize an instance of type `T` directly from XML text
 pub fn from_str<T>(text: &str) -> Result<T, Error>
@@ -704,14 +713,21 @@ where
 
     fn deserialize_struct<V>(
         self,
-        _name: &'static str,
+        #[allow(unused_variables)] name: &'static str,
         _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_map(visitor)
+        #[cfg(feature = "raw-node")]
+        let res =
+            raw_node::deserialize_struct(self, name, move |this| this.deserialize_map(visitor));
+
+        #[cfg(not(feature = "raw-node"))]
+        let res = self.deserialize_map(visitor);
+
+        res
     }
 
     fn deserialize_enum<V>(
@@ -1160,14 +1176,14 @@ mod tests {
 
     #[test]
     fn borrowed_str() {
-        let document = Document::parse("<root><child>foobar</child></root>").unwrap();
+        let doc = Document::parse("<root><child>foobar</child></root>").unwrap();
 
         #[derive(Deserialize)]
         struct Root<'a> {
             child: &'a str,
         }
 
-        let val = from_doc::<Root>(&document).unwrap();
+        let val = from_doc::<Root>(&doc).unwrap();
         assert_eq!(val.child, "foobar");
     }
 
