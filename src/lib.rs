@@ -97,7 +97,9 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! The reserved name `$text` is used to directly refer to the text within an element:
+//! The reserved name `#content` is used to flatten one level of the hierarchy and
+//! revisit those nodes and attributes as if embedded inside another struct. This can
+//! useful to handle inner text:
 //!
 //! ```
 //! use serde::Deserialize;
@@ -110,7 +112,7 @@
 //!
 //! #[derive(Deserialize)]
 //! struct Child {
-//!     #[serde(rename = "$text")]
+//!     #[serde(rename = "#content")]
 //!     text: String,
 //!     attribute: i32,
 //! }
@@ -118,6 +120,37 @@
 //! let record = from_str::<Record>(r#"<record><child attribute="42">foobar</child></record>"#)?;
 //! assert_eq!(record.child.text, "foobar");
 //! assert_eq!(record.child.attribute, 42);
+//! #
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! or partial alternatives:
+//!
+//! ```
+//! use serde::Deserialize;
+//! use serde_roxmltree::from_str;
+//!
+//! #[derive(Debug, PartialEq, Deserialize)]
+//! #[serde(rename_all = "lowercase")]
+//! enum Alternative {
+//!     Float(f32),
+//!     Integer(i32),
+//! }
+//!
+//! #[derive(Debug, PartialEq, Deserialize)]
+//! struct Record {
+//!     #[serde(rename = "#content")]
+//!     alternative: Alternative,
+//!     string: String,
+//! }
+//!
+//! let record = from_str::<Record>("<record><float>42.0</float><string>foo</string></record>")?;
+//! assert_eq!(record.alternative, Alternative::Float(42.0));
+//! assert_eq!(record.string, "foo");
+//!
+//! let record = from_str::<Record>("<record><integer>23</integer><string>bar</string></record>")?;
+//! assert_eq!(record.alternative, Alternative::Integer(23));
+//! assert_eq!(record.string, "bar");
 //! #
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -285,7 +318,7 @@ pub trait Options: Sized {
 
     /// Only visit child elements
     ///
-    /// Does not visit attributes and `$text`
+    /// Does not visit attributes and `#content`
     /// to improve efficiency when these are irrelevant.
     fn only_children(self) -> OnlyChildren<Self> {
         OnlyChildren(PhantomData)
@@ -361,28 +394,21 @@ struct Deserializer<'de, 'input, 'temp, O> {
 enum Source<'de, 'input> {
     Node(Node<'de, 'input>),
     Attribute(Attribute<'de, 'input>),
-    Text(&'de str),
+    Content(Node<'de, 'input>),
 }
 
-#[derive(Default)]
-struct Temp {
-    visited: BitSet<usize>,
-    buffer: String,
-}
-
-impl<'de, 'input, O> Deserializer<'de, 'input, '_, O>
-where
-    O: Options,
-{
-    fn name(&mut self) -> &str {
-        match &self.source {
-            Source::Node(node) => {
+impl Source<'_, '_> {
+    fn name<'a, O>(&'a self, buffer: &'a mut String) -> &'a str
+    where
+        O: Options,
+    {
+        match self {
+            Self::Node(node) => {
                 let tag_name = node.tag_name();
                 let name = tag_name.name();
 
                 match tag_name.namespace() {
                     Some(namespace) if O::NAMESPACES => {
-                        let buffer = &mut self.temp.buffer;
                         buffer.clear();
 
                         buffer.reserve(namespace.len() + 2 + name.len());
@@ -398,12 +424,11 @@ where
                     _ => name,
                 }
             }
-            Source::Attribute(attr) => {
+            Self::Attribute(attr) => {
                 let name = attr.name();
 
                 match attr.namespace() {
                     Some(namespace) if O::NAMESPACES => {
-                        let buffer = &mut self.temp.buffer;
                         buffer.clear();
 
                         if O::PREFIX_ATTR {
@@ -424,7 +449,6 @@ where
                     }
                     _ => {
                         if O::PREFIX_ATTR {
-                            let buffer = &mut self.temp.buffer;
                             buffer.clear();
 
                             buffer.reserve(1 + name.len());
@@ -439,14 +463,29 @@ where
                     }
                 }
             }
-            Source::Text(_) => "$text",
+            Self::Content(_) => "#content",
         }
+    }
+}
+
+#[derive(Default)]
+struct Temp {
+    visited: BitSet<usize>,
+    buffer: String,
+}
+
+impl<'de, 'input, O> Deserializer<'de, 'input, '_, O>
+where
+    O: Options,
+{
+    fn name(&mut self) -> &str {
+        self.source.name::<O>(&mut self.temp.buffer)
     }
 
     fn node(&self) -> Result<&Node<'de, 'input>, Error> {
         match &self.source {
-            Source::Node(node) => Ok(node),
-            Source::Attribute(_) | Source::Text(_) => Err(Error::MissingNode),
+            Source::Node(node) | Source::Content(node) => Ok(node),
+            Source::Attribute(_) => Err(Error::MissingNode),
         }
     }
 
@@ -471,9 +510,9 @@ where
 
         let attributes = node.attributes().map(Source::Attribute);
 
-        let text = once(Source::Text(node.text().unwrap_or_default()));
+        let content = once(Source::Content(*node));
 
-        Ok(children.chain(attributes).chain(text))
+        Ok(children.chain(attributes).chain(content))
     }
 
     fn siblings(&self) -> Result<impl Iterator<Item = Node<'de, 'de>>, Error> {
@@ -494,9 +533,8 @@ where
 
     fn text(&self) -> &'de str {
         match self.source {
-            Source::Node(node) => node.text().unwrap_or_default(),
+            Source::Node(node) | Source::Content(node) => node.text().unwrap_or_default(),
             Source::Attribute(attr) => attr.value(),
-            Source::Text(text) => text,
         }
     }
 
@@ -733,7 +771,7 @@ where
     fn deserialize_enum<V>(
         self,
         _name: &'static str,
-        _variants: &'static [&'static str],
+        variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
@@ -742,12 +780,14 @@ where
         if O::ONLY_CHILDREN {
             visitor.visit_enum(EnumAccess {
                 source: self.children()?,
+                variants,
                 temp: self.temp,
                 options: PhantomData::<O>,
             })
         } else {
             visitor.visit_enum(EnumAccess {
                 source: self.children_and_attributes()?,
+                variants,
                 temp: self.temp,
                 options: PhantomData::<O>,
             })
@@ -874,6 +914,7 @@ where
     I: Iterator<Item = Source<'de, 'input>>,
 {
     source: I,
+    variants: &'static [&'static str],
     temp: &'temp mut Temp,
     options: PhantomData<O>,
 }
@@ -890,7 +931,13 @@ where
     where
         V: de::DeserializeSeed<'de>,
     {
-        let source = self.source.next().ok_or(Error::MissingChildOrAttribute)?;
+        let source = self
+            .source
+            .find(|source| {
+                self.variants
+                    .contains(&source.name::<O>(&mut self.temp.buffer))
+            })
+            .ok_or(Error::MissingChildOrAttribute)?;
 
         let deserializer = Deserializer {
             source,
@@ -1059,7 +1106,7 @@ mod tests {
         #[derive(Deserialize)]
         struct Child {
             attr: i32,
-            #[serde(rename = "$text")]
+            #[serde(rename = "#content")]
             text: u64,
         }
 
@@ -1172,6 +1219,72 @@ mod tests {
 
         let val = from_str::<Root>(r#"<root Bar="42" />"#).unwrap();
         assert_eq!(val, Root::Bar(42));
+    }
+
+    #[test]
+    fn mixed_enum_and_struct_children() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        enum Foobar {
+            Foo(u32),
+            Bar(i64),
+        }
+
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "#content")]
+            foobar: Foobar,
+            qux: f32,
+        }
+
+        let val = from_str::<Root>(r#"<root><qux>42.0</qux><Foo>23</Foo></root>"#).unwrap();
+        assert_eq!(val.foobar, Foobar::Foo(23));
+        assert_eq!(val.qux, 42.0);
+    }
+
+    #[test]
+    fn mixed_enum_and_repeated_struct_children() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        enum Foobar {
+            Foo(u32),
+            Bar(i64),
+        }
+
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "#content")]
+            foobar: Foobar,
+            qux: Vec<f32>,
+            baz: String,
+        }
+
+        let val = from_str::<Root>(
+            r#"<root><Bar>42</Bar><qux>1.0</qux><baz>baz</baz><qux>2.0</qux><qux>3.0</qux></root>"#,
+        )
+        .unwrap();
+        assert_eq!(val.foobar, Foobar::Bar(42));
+        assert_eq!(val.qux, [1.0, 2.0, 3.0]);
+        assert_eq!(val.baz, "baz");
+    }
+
+    #[test]
+    fn repeated_enum_and_struct_children() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        enum Foobar {
+            Foo(Vec<u32>),
+            Bar(i64),
+        }
+
+        #[derive(Deserialize)]
+        struct Root {
+            #[serde(rename = "#content")]
+            foobar: Foobar,
+            baz: String,
+        }
+
+        let val =
+            from_str::<Root>(r#"<root><Foo>42</Foo><baz>baz</baz><Foo>23</Foo></root>"#).unwrap();
+        assert_eq!(val.foobar, Foobar::Foo(vec![42, 23]));
+        assert_eq!(val.baz, "baz");
     }
 
     #[test]
@@ -1309,11 +1422,11 @@ mod tests {
     }
 
     #[test]
-    fn only_children_skips_text() {
+    fn only_children_skips_content() {
         #[derive(Deserialize)]
         struct Root {
             child: u64,
-            #[serde(rename = "$text")]
+            #[serde(rename = "#content")]
             text: Option<String>,
         }
 
