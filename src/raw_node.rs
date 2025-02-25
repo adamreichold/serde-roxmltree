@@ -93,13 +93,15 @@ where
 {
     let _reset_curr_node = match &this.source {
         Source::Node(node) if ptr::eq(name, RAW_NODE_NAME) => {
+            let reset_curr_node = ResetCurrNode(CURR_NODE.get());
+
             #[allow(unsafe_code)]
             // SAFETY: The guard will reset this before `deserialize_struct` returns.
             CURR_NODE.set(Some(unsafe {
                 transmute::<Node<'de, 'input>, Node<'static, 'static>>(*node)
             }));
 
-            Some(ResetCurrNode)
+            Some(reset_curr_node)
         }
         _ => None,
     };
@@ -113,11 +115,11 @@ thread_local! {
     static CURR_NODE: Cell<Option<Node<'static, 'static>>> = const { Cell::new(None) };
 }
 
-struct ResetCurrNode;
+struct ResetCurrNode(Option<Node<'static, 'static>>);
 
 impl Drop for ResetCurrNode {
     fn drop(&mut self) {
-        CURR_NODE.set(None);
+        CURR_NODE.set(self.0.take());
     }
 }
 
