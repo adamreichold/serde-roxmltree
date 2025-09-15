@@ -230,7 +230,7 @@ use std::str::{FromStr, ParseBoolError};
 
 use bit_set::BitSet;
 use roxmltree::{Attribute, Document, Error as XmlError, Node};
-use serde::de;
+use serde_core::de;
 
 pub use roxmltree;
 

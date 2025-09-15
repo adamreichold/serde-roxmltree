@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::ptr;
 
 use roxmltree::Node;
-use serde::de;
+use serde_core::de;
 
 use crate::{Deserializer, Source};
 
