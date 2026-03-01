@@ -1,3 +1,7 @@
+This repository was moved to <https://codeberg.org/adamreichold/serde-roxmltree>.
+
+---
+
 # serde-roxmltree
 
 [![crates.io](https://img.shields.io/crates/v/serde-roxmltree.svg)](https://crates.io/crates/serde-roxmltree)
